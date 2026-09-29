@@ -39,6 +39,11 @@ TEAL = "#4E8F86"
 ORANGE = "#C97B3C"
 GREY = "#A9B0BA"
 
+# 系列配色：客户主题色是单色时，同一色相的深／浅两调就是一套足够的系列色，
+# 不要为了区分去凑蓝与青绿两个色相。这里以橙色主题（客户公司主题色）为例：
+# 第一调最深给主样本，往后逐调变浅；第三个色留给「其余／其他」这一类。
+TINTS = (ORANGE, "#F0B478", "#FBE0C4", GREY)
+
 
 def pct(c, n):
     return 100.0 * c / n if n else float("nan")
@@ -125,24 +130,44 @@ def hbar(ax, labels, counts, base, colors=None, xmax=None, sort=True, label_fmt=
     return ax
 
 
-def grouped_hbar(ax, labels, series, xlim=None):
+def grouped_hbar(ax, labels, series, xlim=None, colors=None, label_fmt="%.1f"):
     """分组水平条。series 是 [(名字, counts, base), ...]，各组的基数可以不同，
-    但调用方要在图注里写清「分母是否相同」。"""
+    但调用方要在图注里写清「分母是否相同」。
+
+    colors 传 None 时按 TINTS 取，即同一色相的深／浅两调——客户主题色是单色时用它，
+    别把两批画成蓝与青绿两个色相（见 references/tables-and-figures.md 第三节）。"""
+    if colors is None:
+        colors = TINTS
     n = len(series)
     y = list(range(len(labels)))[::-1]
     hh = 0.8 / n
+    marks = []          # (名字序号, 计数, x 去重前的位置) 留到 xlim 定下后再写数值
+    top = 0.0
     for k, (name, counts, base) in enumerate(series):
         off = (k - (n - 1) / 2.0) * hh
         vals = [pct(c, base) for c in counts]
         errs = [moe(c, base) for c in counts]
         ax.barh([yy + off for yy in y], vals, xerr=errs, height=hh,
-                color=[BLUE, TEAL, ORANGE, GREY][k % 4],
+                color=colors[k % len(colors)],
                 label="%s（n=%d）" % (name, base),
                 error_kw=dict(ecolor="#6C7480", elinewidth=0.9, capsize=2.2))
+        for yy, v, e in zip(y, vals, errs):
+            marks.append((yy + off, v, e))
+            if v == v and e == e:
+                top = max(top, v + e)
     ax.set_yticks(y)
     ax.set_yticklabels(labels)
-    top = ax.get_xlim()[1]
-    ax.set_xlim(0, xlim or top)
+    lim = xlim or (top * 1.18 if top else None)
+    if lim:
+        ax.set_xlim(0, lim)
+    # 数值标签的落点是「条形末端 + 该点 ME + 余量」。只加一个固定量会让标签停在误差棒
+    # 的棒线与端帽上，两者重叠（2026-09-28 实测踩到过）。
+    pad = (lim or 100) * 0.014
+    for yy, v, e in marks:
+        if v != v:
+            continue
+        ax.text(v + (e if e == e else 0.0) + pad, yy, label_fmt % v,
+                va="center", fontsize=8, color=INK)
     ax.set_xlabel("占比（%，误差棒为 ME）", fontsize=9)
     ax.grid(axis="x", color="#E4E8EC", linewidth=0.8)
     ax.set_axisbelow(True)
